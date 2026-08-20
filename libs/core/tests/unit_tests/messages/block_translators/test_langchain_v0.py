@@ -111,3 +111,50 @@ def test_convert_with_extras_on_v0_block() -> None:
     }
 
     assert _convert_legacy_v0_content_block_to_v1(block) == expected_output
+
+
+def test_v0_id_block_keeps_mime_type_top_level() -> None:
+    """`mime_type` is a standard field, so it must not be demoted into `extras`.
+
+    v0 `source_type="id"` blocks used to route `mime_type` into `extras` for images
+    and audio, while `file` and the `url`/`base64` source types kept it top level.
+    Genuine unknown keys still belong in `extras`.
+    """
+    image_block = {
+        "type": "image",
+        "source_type": "id",
+        "id": "<file id>",
+        "mime_type": "image/png",
+        "alt_text": "An example image",
+    }
+    assert _convert_legacy_v0_content_block_to_v1(image_block) == {
+        "type": "image",
+        "file_id": "<file id>",
+        "mime_type": "image/png",
+        "extras": {"alt_text": "An example image"},
+    }
+
+    audio_block = {
+        "type": "audio",
+        "source_type": "id",
+        "id": "<file id>",
+        "mime_type": "audio/mpeg",
+        "alt_text": "An example clip",
+    }
+    assert _convert_legacy_v0_content_block_to_v1(audio_block) == {
+        "type": "audio",
+        "file_id": "<file id>",
+        "mime_type": "audio/mpeg",
+        "extras": {"alt_text": "An example clip"},
+    }
+
+
+def test_v0_id_block_without_mime_type_omits_it() -> None:
+    """A v0 block carrying no `mime_type` must not gain an empty one."""
+    assert _convert_legacy_v0_content_block_to_v1(
+        {"type": "image", "source_type": "id", "id": "<file id>"}
+    ) == {"type": "image", "file_id": "<file id>"}
+
+    assert _convert_legacy_v0_content_block_to_v1(
+        {"type": "audio", "source_type": "id", "id": "<file id>"}
+    ) == {"type": "audio", "file_id": "<file id>"}

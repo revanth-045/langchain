@@ -128,10 +128,12 @@ def _convert_legacy_v0_content_block_to_v1(
             return v1_image_base64
         if source_type == "id":
             # image-id
-            known_keys = {"type", "source_type", "id"}
+            known_keys = {"mime_type", "type", "source_type", "id"}
             extras = _extract_v0_extras(block, known_keys)
             # For id `source_type`, `id` is the file reference, not block ID
             v1_image_id = types.ImageContentBlock(type="image", file_id=block["id"])
+            if block.get("mime_type"):
+                v1_image_id["mime_type"] = block["mime_type"]
 
             v1_image_id["extras"] = {}
             for key, value in extras.items():
@@ -198,11 +200,13 @@ def _convert_legacy_v0_content_block_to_v1(
             return v1_audio_base64
         if source_type == "id":
             # audio-id
-            known_keys = {"type", "source_type", "id"}
+            known_keys = {"mime_type", "type", "source_type", "id"}
             extras = _extract_v0_extras(block, known_keys)
             v1_audio_id: types.AudioContentBlock = types.AudioContentBlock(
                 type="audio", file_id=block["id"]
             )
+            if block.get("mime_type"):
+                v1_audio_id["mime_type"] = block["mime_type"]
 
             v1_audio_id["extras"] = {}
             for key, value in extras.items():
