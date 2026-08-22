@@ -125,6 +125,25 @@ class TestCreditCardDetection:
 
         assert len(matches) == 1
 
+    def test_detect_amex_credit_card(self) -> None:
+        # American Express test number: 15 digits, grouped 4-6-5
+        for content in (
+            "Card: 3782 822463 10005",
+            "Card: 378282246310005",
+            "Card: 3782-822463-10005",
+        ):
+            matches = detect_credit_card(content)
+
+            assert len(matches) == 1, content
+            assert matches[0]["type"] == "credit_card"
+
+    def test_detect_diners_club_credit_card(self) -> None:
+        # Diners Club test number: 14 digits
+        matches = detect_credit_card("Card: 30569309025904")
+
+        assert len(matches) == 1
+        assert matches[0]["value"] == "30569309025904"
+
     def test_invalid_luhn_not_detected(self) -> None:
         # Invalid Luhn checksum
         content = "Card: 1234567890123456"
@@ -319,6 +338,17 @@ class TestMaskStrategy:
         content = result["messages"][0].content
         assert "0366" in content  # Last 4 digits visible
         assert "4532015112830366" not in content
+
+    def test_mask_amex_credit_card(self) -> None:
+        """Masking must not assume four groups of four digits."""
+        middleware = PIIMiddleware("credit_card", strategy="mask")
+        state = AgentState[Any](messages=[HumanMessage("Card: 3782 822463 10005")])
+
+        result = middleware.before_model(state, Runtime())
+
+        assert result is not None
+        content = result["messages"][0].content
+        assert content == "Card: **** ****** *0005"
 
     def test_mask_ip(self) -> None:
         middleware = PIIMiddleware("ip", strategy="mask")

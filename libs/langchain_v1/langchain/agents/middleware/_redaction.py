@@ -77,7 +77,11 @@ def detect_credit_card(content: str) -> list[PIIMatch]:
     Returns:
         A list of detected credit card matches.
     """
-    pattern = r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"
+    # Card numbers are 13-19 digits: American Express is 15 and Diners Club 14,
+    # so a fixed four-groups-of-four pattern silently misses whole brands. Luhn
+    # below does the real filtering, so this only has to be loose enough to
+    # offer up every brand as a candidate.
+    pattern = r"\b\d{4}(?:[\s-]?\d){9,15}\b"
     matches = []
 
     for match in re.finditer(pattern, content):
@@ -265,15 +269,20 @@ def _apply_mask_strategy(content: str, matches: list[PIIMatch]) -> str:
             else:
                 masked = "****"
         elif pii_type == "credit_card":
-            digits_only = "".join(c for c in value if c.isdigit())
-            separator = "-" if "-" in value else " " if " " in value else ""
-            if separator:
-                masked = (
-                    f"****{separator}****{separator}****{separator}"
-                    f"{digits_only[-_UNMASKED_CHAR_NUMBER:]}"
-                )
-            else:
-                masked = f"************{digits_only[-_UNMASKED_CHAR_NUMBER:]}"
+            # Mask digits in place rather than rebuilding a fixed 4-4-4-4 shape,
+            # so the grouping and length of the original are preserved for cards
+            # that are not sixteen digits (e.g. American Express).
+            total_digits = sum(1 for c in value if c.isdigit())
+            seen = 0
+            masked_chars = []
+            for char in value:
+                if char.isdigit():
+                    seen += 1
+                    keep = seen > total_digits - _UNMASKED_CHAR_NUMBER
+                    masked_chars.append(char if keep else "*")
+                else:
+                    masked_chars.append(char)
+            masked = "".join(masked_chars)
         elif pii_type == "ip":
             octets = value.split(".")
             masked = f"*.*.*.{octets[-1]}" if len(octets) == _IPV4_PARTS_NUMBER else "****"
