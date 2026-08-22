@@ -1502,3 +1502,57 @@ def test_convert_to_openai_function_without_tools_module_imported(
     result = convert_to_openai_function(my_func)
 
     assert result["name"] == "my_func"
+
+
+def test_convert_to_openai_function_strict_nested_in_tuple() -> None:
+    """Models nested in a tuple field must also be made strict.
+
+    Pydantic represents a tuple as `prefixItems`, a list of positional
+    subschemas, rather than the single `items` subschema used for lists. A model
+    nested that way is only reachable through `prefixItems`, so missing it left
+    the inner object without `additionalProperties` and with an incomplete
+    `required`, which strict mode rejects.
+    """
+
+    class Inner(BaseModel):
+        """Inner schema."""
+
+        required_field: str = Field(..., description="req")
+        optional_field: str = Field(default="x", description="opt")
+
+    class Outer(BaseModel):
+        """Outer schema."""
+
+        pair: tuple[Inner, Inner]
+
+    func = convert_to_openai_function(Outer, strict=True)
+    prefix_items = func["parameters"]["properties"]["pair"]["prefixItems"]
+
+    assert len(prefix_items) == 2
+    for inner_schema in prefix_items:
+        assert set(inner_schema["required"]) == {"required_field", "optional_field"}
+        assert inner_schema["additionalProperties"] is False
+
+
+def test_convert_to_openai_function_strict_nested_in_one_of() -> None:
+    """Objects under `oneOf` must be made strict, as they already are under `anyOf`."""
+    raw_schema = {
+        "name": "f",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "choice": {
+                    "oneOf": [
+                        {"type": "object", "properties": {"x": {"type": "string"}}},
+                        {"type": "object", "properties": {"y": {"type": "string"}}},
+                    ]
+                }
+            },
+        },
+    }
+
+    func = convert_to_openai_function(raw_schema, strict=True)
+    branches = func["parameters"]["properties"]["choice"]["oneOf"]
+
+    assert [branch["required"] for branch in branches] == [["x"], ["y"]]
+    assert all(branch["additionalProperties"] is False for branch in branches)

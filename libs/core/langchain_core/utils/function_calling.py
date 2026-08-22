@@ -845,14 +845,15 @@ def _recursive_set_additional_properties_false(
         ):
             schema["additionalProperties"] = False
 
-        # Recursively check 'properties' and 'items' if they exist
-        if "anyOf" in schema:
-            for sub_schema in schema["anyOf"]:
-                _recursive_set_additional_properties_false(sub_schema)
-        # Pydantic <2.9 wraps a referenced model field in 'allOf' when it has
-        # sibling keys (e.g. 'description'), instead of merging them directly.
-        if "allOf" in schema:
-            for sub_schema in schema["allOf"]:
+        # Recursively check 'properties' and 'items' if they exist.
+        # These keywords all hold a *list* of subschemas rather than a single one:
+        # - 'anyOf'/'oneOf' come from unions and hand-written JSON schemas
+        # - 'allOf' is how Pydantic <2.9 wraps a referenced model field that has
+        #   sibling keys (e.g. 'description'), instead of merging them directly
+        # - 'prefixItems' is what Pydantic emits for tuple fields, so a model
+        #   nested in a tuple is only reachable through it
+        for list_key in ("anyOf", "allOf", "oneOf", "prefixItems"):
+            for sub_schema in schema.get(list_key) or []:
                 _recursive_set_additional_properties_false(sub_schema)
         if "properties" in schema:
             for sub_schema in schema["properties"].values():
