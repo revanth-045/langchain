@@ -28,7 +28,7 @@ from langchain.agents import AgentState
 from langchain.agents import middleware as middleware_package
 from langchain.agents.factory import create_agent
 from langchain.agents.middleware import PIIMatch as PublicPIIMatch
-from langchain.agents.middleware._redaction import RedactionRule
+from langchain.agents.middleware._redaction import RedactionRule, apply_strategy
 from langchain.agents.middleware.pii import (
     PIIDetectionError,
     PIIMatch,
@@ -96,6 +96,23 @@ class TestEmailDetection:
         matches = detect_email(content)
         # Should not match invalid formats
         assert len(matches) == 0
+
+    def test_tld_does_not_match_a_pipe(self) -> None:
+        # The TLD character class must not treat "|" as an alternation operator:
+        # inside a class it is a literal, which made pipe-delimited text match.
+        content = "ping me at ops@host.c|m now"
+        matches = detect_email(content)
+
+        assert matches == []
+
+    def test_pipe_delimited_neighbour_is_not_swallowed(self) -> None:
+        # A markdown table cell or pipe-delimited log line must keep the text
+        # that follows the delimiter.
+        content = "table cell: name@corp.io|next"
+        matches = detect_email(content)
+
+        assert [m["value"] for m in matches] == ["name@corp.io"]
+        assert apply_strategy(content, matches, "redact") == "table cell: [REDACTED_EMAIL]|next"
 
 
 class TestCreditCardDetection:
