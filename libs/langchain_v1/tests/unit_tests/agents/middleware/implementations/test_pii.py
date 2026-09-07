@@ -6,6 +6,7 @@
 # (langgraph#8389). The `# type: ignore[attr-defined]` below self-remove once
 # langgraph adds a `__getattr__` fallback (strict mode's `warn_unused_ignores`).
 
+import itertools
 import re
 from typing import Any
 
@@ -28,7 +29,7 @@ from langchain.agents import AgentState
 from langchain.agents import middleware as middleware_package
 from langchain.agents.factory import create_agent
 from langchain.agents.middleware import PIIMatch as PublicPIIMatch
-from langchain.agents.middleware._redaction import RedactionRule
+from langchain.agents.middleware._redaction import RedactionRule, apply_strategy
 from langchain.agents.middleware.pii import (
     PIIDetectionError,
     PIIMatch,
@@ -261,6 +262,40 @@ class TestURLDetection:
         detect_url(content)
         # May or may not detect depending on implementation
         # This is acceptable
+
+    def test_nested_url_yields_no_overlapping_spans(self) -> None:
+        # A URL carried in a query parameter makes the bare-domain pattern match a
+        # span that fully contains the scheme pattern's match. Those spans must be
+        # reconciled: the strategies splice by offset, so overlaps corrupt output.
+        content = "a.com/p?u=http://b.com[1]"
+        matches = detect_url(content)
+
+        for first, second in itertools.pairwise(matches):
+            assert first["end"] <= second["start"]
+
+    def test_nested_url_redacts_without_corrupting_text(self) -> None:
+        content = "a.com/p?u=http://b.com[1]"
+        matches = detect_url(content)
+
+        assert apply_strategy(content, matches, "redact") == "[REDACTED_URL]"
+
+    def test_nested_url_hash_does_not_leak_partial_digest(self) -> None:
+        # Overlapping spans previously spliced a truncated digest into the output.
+        content = "a.com/p?u=http://b.com[1]"
+        matches = detect_url(content)
+        result = apply_strategy(content, matches, "hash")
+
+        assert result.startswith("<url_hash:")
+        assert result.endswith(">")
+        assert result.count("<url_hash:") == 1
+
+    def test_trailing_text_after_nested_url_is_preserved(self) -> None:
+        content = "see a.com/x?u=http://evil.com and more"
+        matches = detect_url(content)
+        result = apply_strategy(content, matches, "redact")
+
+        assert result.startswith("see ")
+        assert result.endswith(" and more")
 
 
 # ============================================================================

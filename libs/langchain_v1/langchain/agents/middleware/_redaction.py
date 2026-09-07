@@ -153,9 +153,9 @@ def detect_url(content: str) -> list[PIIMatch]:
         content: The text content to scan for URLs.
 
     Returns:
-        A list of detected URL matches.
+        A list of detected URL matches, ordered by position and never overlapping.
     """
-    matches: list[PIIMatch] = []
+    candidates: list[PIIMatch] = []
 
     # Pattern 1: URLs with scheme (http:// or https://)
     scheme_pattern = r"https?://[^\s<>\"{}|\\^`\[\]]+"
@@ -164,7 +164,7 @@ def detect_url(content: str) -> list[PIIMatch]:
         url = match.group()
         result = urlparse(url)
         if result.scheme in {"http", "https"} and result.netloc:
-            matches.append(
+            candidates.append(
                 PIIMatch(
                     type="url",
                     value=url,
@@ -181,11 +181,6 @@ def detect_url(content: str) -> list[PIIMatch]:
     )
 
     for match in re.finditer(bare_pattern, content):
-        start, end = match.start(), match.end()
-        # Skip if already matched with scheme
-        if any(m["start"] <= start < m["end"] or m["start"] < end <= m["end"] for m in matches):
-            continue
-
         url = match.group()
         # Only accept if it has a path or starts with www
         # This reduces false positives like "example.com" in prose
@@ -194,15 +189,30 @@ def detect_url(content: str) -> list[PIIMatch]:
             test_url = f"http://{url}"
             result = urlparse(test_url)
             if result.netloc and "." in result.netloc:
-                matches.append(
+                candidates.append(
                     PIIMatch(
                         type="url",
                         value=url,
-                        start=start,
-                        end=end,
+                        start=match.start(),
+                        end=match.end(),
                     )
                 )
 
+    # The two patterns can produce spans that intersect: a bare match may fully
+    # contain a scheme match (e.g. a URL carried in a query parameter). The
+    # redaction strategies splice matches by their original offsets, so
+    # overlapping spans corrupt the output. Keep the widest span for each region
+    # and drop any candidate that intersects one already kept.
+    matches: list[PIIMatch] = []
+    for candidate in sorted(candidates, key=lambda m: (m["start"] - m["end"], m["start"])):
+        if any(
+            candidate["start"] < kept["end"] and kept["start"] < candidate["end"]
+            for kept in matches
+        ):
+            continue
+        matches.append(candidate)
+
+    matches.sort(key=operator.itemgetter("start"))
     return matches
 
 
