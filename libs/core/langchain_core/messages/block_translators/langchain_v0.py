@@ -52,6 +52,21 @@ def _convert_legacy_v0_content_block_to_v1(
 
     Returns the original block unchanged if it's not in v0 format.
     """
+    converted = _convert_v0_block_body(block)
+
+    # `index` is a declared field on the data block types, so it belongs at the top
+    # level rather than in `extras`. Only `file` + `source_type: "id"` used to land it
+    # there, by way of forwarding extras into a constructor that accepts `index`.
+    if converted is not block and "index" in block:
+        converted["index"] = block["index"]
+
+    return converted
+
+
+def _convert_v0_block_body(
+    block: dict[str, Any],
+) -> types.ContentBlock | dict[str, Any]:
+    """Convert the block, leaving `index` for the caller to place."""
 
     def _extract_v0_extras(
         block_dict: dict[str, Any], known_keys: set[str]
@@ -65,7 +80,9 @@ def _convert_legacy_v0_content_block_to_v1(
         Returns:
             A dictionary of extra keys not part of the known v0 format.
         """
-        return {k: v for k, v in block_dict.items() if k not in known_keys}
+        return {
+            k: v for k, v in block_dict.items() if k not in known_keys and k != "index"
+        }
 
     # Check if this is actually a v0 format block
     block_type = block.get("type")
